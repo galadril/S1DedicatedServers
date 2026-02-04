@@ -6,6 +6,7 @@ using System.Collections;
 using ScheduleOne.DevUtilities;
 using DedicatedServerMod.API;
 using DedicatedServerMod.Shared.Networking;
+using DedicatedServerMod.Client.Data;
 using UnityEngine;
 
 namespace DedicatedServerMod.Client.Managers
@@ -319,6 +320,9 @@ namespace DedicatedServerMod.Client.Managers
                 _targetServerIP = ip.Trim();
                 _targetServerPort = port;
                 logger.Msg($"Target server updated to {_targetServerIP}:{_targetServerPort}");
+                
+                // Add to server history
+                ServerHistory.AddServer(_targetServerIP, _targetServerPort);
             }
             catch (Exception ex)
             {

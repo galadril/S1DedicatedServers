@@ -1,7 +1,9 @@
 using MelonLoader;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using DedicatedServerMod.Assets;
+using DedicatedServerMod.Client.Data;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -43,6 +45,12 @@ namespace DedicatedServerMod.Client.Managers
         private TMP_InputField dsIpInput;
         private TMP_InputField dsPortInput;
 
+        // History and server list management
+        private Button dsHistoryButton;
+        private Button dsAllServersButton;
+        private Transform dsServerListContent;
+        private bool isShowingHistory = false;
+
         // Theme
         private static readonly Color ACCENT = new Color(0.10f, 0.65f, 1f, 1f);
         private static readonly Color PANEL_BG = new Color(0.08f, 0.09f, 0.12f, 0.96f);
@@ -68,6 +76,9 @@ namespace DedicatedServerMod.Client.Managers
             try
             {
                 logger.Msg("Initializing ClientUIManager");
+                
+                // Initialize server history
+                ServerHistory.Initialize(logger);
                 
                 // UI will be setup when menu scene loads
                 
@@ -535,6 +546,19 @@ namespace DedicatedServerMod.Client.Managers
                 dsOpenDirectConnectButton = FindDeepChild(dsServerBrowserPanel, "DirectConnectButton")?.GetComponent<Button>();
                 dsConnectButton = FindDeepChild(dsDirectConnectPanel, "ConnectButton")?.GetComponent<Button>();
                 dsCancelButton = FindDeepChild(dsDirectConnectPanel, "CancelButton")?.GetComponent<Button>();
+                dsHistoryButton = FindDeepChild(dsServerBrowserPanel, "HistoryButton")?.GetComponent<Button>();
+                dsAllServersButton = FindDeepChild(dsServerBrowserPanel, "AllServersButton")?.GetComponent<Button>();
+
+                // Find server list content area (for populating server entries)
+                var scrollViewTransform = FindDeepChild(dsServerBrowserPanel, "ServerList");
+                if (scrollViewTransform != null)
+                {
+                    var viewport = FindDeepChild(scrollViewTransform, "Viewport");
+                    if (viewport != null)
+                    {
+                        dsServerListContent = FindDeepChild(viewport, "Content");
+                    }
+                }
 
                 var ipTransform = FindDeepChild(dsDirectConnectPanel, "IP");
                 var portTransform = FindDeepChild(dsDirectConnectPanel, "Port");
@@ -581,6 +605,16 @@ namespace DedicatedServerMod.Client.Managers
                     dsConnectButton.onClick.RemoveAllListeners();
                     dsConnectButton.onClick.AddListener(OnDirectConnectConfirm);
                 }
+                if (dsHistoryButton != null)
+                {
+                    dsHistoryButton.onClick.RemoveAllListeners();
+                    dsHistoryButton.onClick.AddListener(OnHistoryButtonClicked);
+                }
+                if (dsAllServersButton != null)
+                {
+                    dsAllServersButton.onClick.RemoveAllListeners();
+                    dsAllServersButton.onClick.AddListener(OnAllServersButtonClicked);
+                }
 
                 // Apply captured fonts/colors so text is visible in game
                 ApplyCapturedFonts(dsServerBrowserPanel);
@@ -588,6 +622,10 @@ namespace DedicatedServerMod.Client.Managers
 
                 ShowDirectConnectPanel(false);
                 PrefillDedicatedDirectConnectFields();
+                
+                // Initially show "All Servers" (empty list)
+                isShowingHistory = false;
+                UpdateServerList();
 
                 logger.Msg("Dedicated client UI loaded and initialized from AssetBundle");
                 return true;
@@ -599,137 +637,308 @@ namespace DedicatedServerMod.Client.Managers
             }
         }
 
-        private void ShowDirectConnectPanel(bool show)
+        /// <summary>
+        /// Clears all server list entries
+        /// </summary>
+        private void ClearServerList()
         {
+            if (dsServerListContent == null) return;
+            
             try
             {
-                if (dsDirectConnectPanel != null)
+                for (int i = dsServerListContent.childCount - 1; i >= 0; i--)
                 {
-                    dsDirectConnectPanel.gameObject.SetActive(show);
-                }
-                if (dsServerBrowserPanel != null)
-                {
-                    dsServerBrowserPanel.gameObject.SetActive(!show);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.Error($"Error toggling DirectConnect panel: {ex}");
-            }
-        }
-
-        private void ApplyCapturedFonts(Transform root)
-        {
-            try
-            {
-                if (root == null) return;
-
-                // Apply to TMP texts
-                var tmpTexts = root.GetComponentsInChildren<TextMeshProUGUI>(true);
-                for (int i = 0; i < tmpTexts.Length; i++)
-                {
-                    var t = tmpTexts[i];
-                    if (capturedTmpFont != null) t.font = capturedTmpFont;
-                    if (capturedTmpMaterial != null) t.fontMaterial = capturedTmpMaterial;
-                }
-
-                // Apply to legacy Text components
-                var legacyTexts = root.GetComponentsInChildren<Text>(true);
-                for (int i = 0; i < legacyTexts.Length; i++)
-                {
-                    var t = legacyTexts[i];
-                    if (capturedLegacyFont != null) t.font = capturedLegacyFont;
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.Error($"Error applying captured fonts: {ex}");
-            }
-        }
-
-        private void PrefillDedicatedDirectConnectFields()
-        {
-            try
-            {
-                var target = ClientConnectionManager.GetTargetServer();
-                
-                if (dsIpInput != null)
-                {
-                    dsIpInput.text = string.Empty; // Clear first to prevent concatenation
-                    dsIpInput.text = target.ip ?? "localhost";
+                    var child = dsServerListContent.GetChild(i);
+                    GameObject.Destroy(child.gameObject);
                 }
                 
-                if (dsPortInput != null)
-                {
-                    dsPortInput.text = string.Empty; // Clear first to prevent concatenation
-                    dsPortInput.text = target.port.ToString();
-                }
+                logger.Msg($"Cleared server list");
             }
             catch (Exception ex)
             {
-                logger.Error($"Error pre-filling dedicated UI fields: {ex}");
+                logger.Error($"Error clearing server list: {ex}");
             }
         }
 
-        private void OnDirectConnectConfirm()
+        /// <summary>
+        /// Handle history button click
+        /// </summary>
+        private void OnHistoryButtonClicked()
         {
             try
             {
-                string ip = dsIpInput != null ? dsIpInput.text : string.Empty;
-                string portText = dsPortInput != null ? dsPortInput.text : string.Empty;
-                if (string.IsNullOrWhiteSpace(ip))
+                logger.Msg("History button clicked");
+                isShowingHistory = true;
+                UpdateServerList();
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error handling history button click: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Handle all servers button click
+        /// </summary>
+        private void OnAllServersButtonClicked()
+        {
+            try
+            {
+                logger.Msg("All Servers button clicked");
+                isShowingHistory = false;
+                UpdateServerList();
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error handling all servers button click: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Updates the server list based on current mode (history or all servers)
+        /// </summary>
+        private void UpdateServerList()
+        {
+            try
+            {
+                if (dsServerListContent == null)
                 {
-                    SetStatusText("IP address is required.");
-                    return;
-                }
-                if (!int.TryParse(portText, out int port) || port <= 0 || port > 65535)
-                {
-                    SetStatusText("Invalid port. Enter a number between 1 and 65535.");
+                    logger.Warning("Server list content not found");
                     return;
                 }
 
-                connectionManager.SetTargetServer(ip.Trim(), port);
-                SetStatusText($"Connecting to {ip.Trim()}:{port}...");
-                connectionManager.StartDedicatedConnection();
+                // Always clear existing entries first
+                ClearServerList();
+
+                if (isShowingHistory)
+                {
+                    // Show history
+                    PopulateHistoryList();
+                }
+                else
+                {
+                    // Show all servers (currently empty - could be populated from master server later)
+                    PopulateAllServersList();
+                }
+
+                // Force Unity to rebuild the layout after adding/removing elements
+                MelonCoroutines.Start(RebuildLayoutNextFrame());
             }
             catch (Exception ex)
             {
-                logger.Error($"Error handling direct connect confirm: {ex}");
+                logger.Error($"Error updating server list: {ex}");
             }
         }
 
-        private Transform FindDeepChild(Transform parent, string childName)
+        /// <summary>
+        /// Rebuilds the layout on the next frame to ensure proper sizing
+        /// </summary>
+        private IEnumerator RebuildLayoutNextFrame()
         {
-            if (parent == null || string.IsNullOrEmpty(childName)) return null;
-            for (int i = 0; i < parent.childCount; i++)
+            yield return null; // Wait one frame
+            
+            if (dsServerListContent != null)
             {
-                var child = parent.GetChild(i);
-                if (child.name == childName) return child;
-                var result = FindDeepChild(child, childName);
-                if (result != null) return result;
+                // Force layout rebuild
+                UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(dsServerListContent.GetComponent<RectTransform>());
+                logger.Msg("Layout rebuilt after server list update");
             }
-            return null;
         }
 
-        private void PrefillServerAddress()
+        /// <summary>
+        /// Populates the server list with history entries
+        /// </summary>
+        private void PopulateHistoryList()
         {
             try
             {
-                if (serverAddressInput != null)
+                var history = ServerHistory.GetHistory();
+                
+                if (history.Count == 0)
                 {
-                    var target = ClientConnectionManager.GetTargetServer();
-                    serverAddressInput.text = $"{target.ip}:{target.port}";
-                    serverAddressInput.caretPosition = serverAddressInput.text.Length;
-                    serverAddressInput.selectionStringAnchorPosition = serverAddressInput.caretPosition;
-                    serverAddressInput.selectionStringFocusPosition = serverAddressInput.caretPosition;
+                    CreateServerListPlaceholder("No recent servers");
+                    return;
                 }
+
+                foreach (var entry in history)
+                {
+                    CreateServerListEntry(entry.IP, entry.Port, entry.ServerName, entry.LastConnected);
+                }
+
+                logger.Msg($"Populated history list with {history.Count} entries");
             }
             catch (Exception ex)
             {
-                logger.Error($"Error pre-filling server address: {ex}");
+                logger.Error($"Error populating history list: {ex}");
             }
         }
 
+        /// <summary>
+        /// Populates the server list with all available servers (master server query)
+        /// </summary>
+        private void PopulateAllServersList()
+        {
+            try
+            {
+                // TODO: Implement master server query
+                // For now, show placeholder
+                CreateServerListPlaceholder("Master server browser not yet implemented");
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error populating all servers list: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Creates a placeholder text in the server list
+        /// </summary>
+        private void CreateServerListPlaceholder(string message)
+        {
+            var placeholderGO = new GameObject("Placeholder", typeof(RectTransform));
+            placeholderGO.transform.SetParent(dsServerListContent, false);
+            
+            var rectTransform = placeholderGO.GetComponent<RectTransform>();
+            rectTransform.anchorMin = new Vector2(0f, 1f);
+            rectTransform.anchorMax = new Vector2(1f, 1f);
+            rectTransform.pivot = new Vector2(0.5f, 1f);
+            rectTransform.sizeDelta = new Vector2(0f, 40f);
+            rectTransform.anchoredPosition = new Vector2(0f, 0f);
+
+            // Add LayoutElement for the layout group
+            var layoutElement = placeholderGO.AddComponent<LayoutElement>();
+            layoutElement.minHeight = 40f;
+            layoutElement.preferredHeight = 40f;
+            layoutElement.flexibleWidth = 1f;
+
+            var text = placeholderGO.AddComponent<TextMeshProUGUI>();
+            text.text = message;
+            text.fontSize = 18;
+            text.color = new Color(1f, 1f, 1f, 0.5f);
+            text.alignment = TextAlignmentOptions.Center;
+            
+            if (capturedTmpFont != null) text.font = capturedTmpFont;
+            if (capturedTmpMaterial != null) text.fontMaterial = capturedTmpMaterial;
+        }
+
+        /// <summary>
+        /// Creates a clickable server entry in the list
+        /// </summary>
+        private void CreateServerListEntry(string ip, int port, string serverName, DateTime lastConnected)
+        {
+            try
+            {
+                // Create entry from scratch - no template needed
+                var entryGO = new GameObject($"ServerEntry_{ip}_{port}", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button), typeof(LayoutElement));
+                entryGO.transform.SetParent(dsServerListContent, false);
+
+                var rectTransform = entryGO.GetComponent<RectTransform>();
+                // Set up anchors for horizontal stretching
+                rectTransform.anchorMin = new Vector2(0f, 1f);
+                rectTransform.anchorMax = new Vector2(1f, 1f);
+                rectTransform.pivot = new Vector2(0.5f, 1f);
+                rectTransform.anchoredPosition = Vector2.zero;
+                
+                // Set a reasonable width for the ScrollRect
+                rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 0f);
+
+                // Configure LayoutElement to control the size in the layout group
+                var layoutElement = entryGO.GetComponent<LayoutElement>();
+                layoutElement.minHeight = 60f;
+                layoutElement.preferredHeight = 60f;
+                layoutElement.flexibleWidth = 1f;  // Take all available width
+                layoutElement.minWidth = 300f;  // Set minimum width
+
+                var image = entryGO.GetComponent<Image>();
+                image.color = new Color(0.15f, 0.16f, 0.19f, 0.9f);
+
+                var button = entryGO.GetComponent<Button>();
+                var colors = new ColorBlock
+                {
+                    colorMultiplier = 1f,
+                    disabledColor = new Color(1f, 1f, 1f, 0.3f),
+                    highlightedColor = new Color(0.20f, 0.21f, 0.25f, 0.9f),
+                    normalColor = new Color(0.15f, 0.16f, 0.19f, 0.9f),
+                    pressedColor = new Color(0.10f, 0.11f, 0.15f, 0.9f),
+                    selectedColor = new Color(0.15f, 0.16f, 0.19f, 0.9f)
+                };
+                button.colors = colors;
+                button.onClick.AddListener(() => OnServerEntryClicked(ip, port));
+
+                // Server name/address text
+                var nameTextGO = new GameObject("ServerName", typeof(RectTransform));
+                nameTextGO.transform.SetParent(entryGO.transform, false);
+                var nameRect = nameTextGO.GetComponent<RectTransform>();
+                nameRect.anchorMin = new Vector2(0f, 0.5f);
+                nameRect.anchorMax = new Vector2(1f, 1f);
+                nameRect.pivot = new Vector2(0f, 0.5f);
+                nameRect.offsetMin = new Vector2(10f, 0f);
+                nameRect.offsetMax = new Vector2(-10f, 0f);
+                
+                var nameText = nameTextGO.AddComponent<TextMeshProUGUI>();
+                nameText.text = string.IsNullOrEmpty(serverName) ? $"{ip}:{port}" : serverName;
+                nameText.fontSize = 18;
+                nameText.color = Color.white;
+                nameText.alignment = TextAlignmentOptions.MidlineLeft;
+                nameText.overflowMode = TextOverflowModes.Ellipsis;
+                
+                if (capturedTmpFont != null) nameText.font = capturedTmpFont;
+                if (capturedTmpMaterial != null) nameText.fontMaterial = capturedTmpMaterial;
+
+                // Address text (if server name is present)
+                if (!string.IsNullOrEmpty(serverName))
+                {
+                    var addressTextGO = new GameObject("ServerAddress", typeof(RectTransform));
+                    addressTextGO.transform.SetParent(entryGO.transform, false);
+                    var addressRect = addressTextGO.GetComponent<RectTransform>();
+                    addressRect.anchorMin = new Vector2(0f, 0f);
+                    addressRect.anchorMax = new Vector2(1f, 0.5f);
+                    addressRect.pivot = new Vector2(0f, 0.5f);
+                    addressRect.offsetMin = new Vector2(10f, 0f);
+                    addressRect.offsetMax = new Vector2(-10f, 0f);
+                    
+                    var addressText = addressTextGO.AddComponent<TextMeshProUGUI>();
+                    addressText.text = $"{ip}:{port}";
+                    addressText.fontSize = 14;
+                    addressText.color = new Color(1f, 1f, 1f, 0.6f);
+                    addressText.alignment = TextAlignmentOptions.MidlineLeft;
+                    addressText.overflowMode = TextOverflowModes.Ellipsis;
+                    
+                    if (capturedTmpFont != null) addressText.font = capturedTmpFont;
+                    if (capturedTmpMaterial != null) addressText.fontMaterial = capturedTmpMaterial;
+                }
+
+                logger.Msg($"Created server entry: {ip}:{port}");
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error creating server list entry: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Handle clicking on a server entry
+        /// </summary>
+        private void OnServerEntryClicked(string ip, int port)
+        {
+            try
+            {
+                logger.Msg($"Server entry clicked: {ip}:{port}");
+                
+                // Set the target and open direct connect panel with prefilled values
+                connectionManager.SetTargetServer(ip, port);
+                PrefillDedicatedDirectConnectFields();
+                ShowDirectConnectPanel(true);
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error handling server entry click: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Create the server menu UI elements
+        /// </summary>
         private void CreateServerMenuUI()
         {
             // Find main menu root to attach our panel
@@ -1023,6 +1232,137 @@ namespace DedicatedServerMod.Client.Managers
             catch (Exception ex)
             {
                 logger.Error($"Error updating server menu state: {ex}");
+            }
+        }
+
+        private void ShowDirectConnectPanel(bool show)
+        {
+            try
+            {
+                if (dsDirectConnectPanel != null)
+                {
+                    dsDirectConnectPanel.gameObject.SetActive(show);
+                }
+                if (dsServerBrowserPanel != null)
+                {
+                    dsServerBrowserPanel.gameObject.SetActive(!show);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error toggling DirectConnect panel: {ex}");
+            }
+        }
+
+        private void ApplyCapturedFonts(Transform root)
+        {
+            try
+            {
+                if (root == null) return;
+
+                // Apply to TMP texts
+                var tmpTexts = root.GetComponentsInChildren<TextMeshProUGUI>(true);
+                for (int i = 0; i < tmpTexts.Length; i++)
+                {
+                    var t = tmpTexts[i];
+                    if (capturedTmpFont != null) t.font = capturedTmpFont;
+                    if (capturedTmpMaterial != null) t.fontMaterial = capturedTmpMaterial;
+                }
+
+                // Apply to legacy Text components
+                var legacyTexts = root.GetComponentsInChildren<Text>(true);
+                for (int i = 0; i < legacyTexts.Length; i++)
+                {
+                    var t = legacyTexts[i];
+                    if (capturedLegacyFont != null) t.font = capturedLegacyFont;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error applying captured fonts: {ex}");
+            }
+        }
+
+        private void PrefillDedicatedDirectConnectFields()
+        {
+            try
+            {
+                var target = ClientConnectionManager.GetTargetServer();
+                
+                if (dsIpInput != null)
+                {
+                    dsIpInput.text = string.Empty; // Clear first to prevent concatenation
+                    dsIpInput.text = target.ip ?? "localhost";
+                }
+                
+                if (dsPortInput != null)
+                {
+                    dsPortInput.text = string.Empty; // Clear first to prevent concatenation
+                    dsPortInput.text = target.port.ToString();
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error pre-filling dedicated UI fields: {ex}");
+            }
+        }
+
+        private void OnDirectConnectConfirm()
+        {
+            try
+            {
+                string ip = dsIpInput != null ? dsIpInput.text : string.Empty;
+                string portText = dsPortInput != null ? dsPortInput.text : string.Empty;
+                if (string.IsNullOrWhiteSpace(ip))
+                {
+                    SetStatusText("IP address is required.");
+                    return;
+                }
+                if (!int.TryParse(portText, out int port) || port <= 0 || port > 65535)
+                {
+                    SetStatusText("Invalid port. Enter a number between 1 and 65535.");
+                    return;
+                }
+
+                connectionManager.SetTargetServer(ip.Trim(), port);
+                SetStatusText($"Connecting to {ip.Trim()}:{port}...");
+                connectionManager.StartDedicatedConnection();
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error handling direct connect confirm: {ex}");
+            }
+        }
+
+        private Transform FindDeepChild(Transform parent, string childName)
+        {
+            if (parent == null || string.IsNullOrEmpty(childName)) return null;
+            for (int i = 0; i < parent.childCount; i++)
+            {
+                var child = parent.GetChild(i);
+                if (child.name == childName) return child;
+                var result = FindDeepChild(child, childName);
+                if (result != null) return result;
+            }
+            return null;
+        }
+
+        private void PrefillServerAddress()
+        {
+            try
+            {
+                if (serverAddressInput != null)
+                {
+                    var target = ClientConnectionManager.GetTargetServer();
+                    serverAddressInput.text = $"{target.ip}:{target.port}";
+                    serverAddressInput.caretPosition = serverAddressInput.text.Length;
+                    serverAddressInput.selectionStringAnchorPosition = serverAddressInput.caretPosition;
+                    serverAddressInput.selectionStringFocusPosition = serverAddressInput.caretPosition;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error pre-filling server address: {ex}");
             }
         }
 
