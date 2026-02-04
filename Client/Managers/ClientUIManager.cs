@@ -549,7 +549,7 @@ namespace DedicatedServerMod.Client.Managers
                 dsConnectButton = FindDeepChild(dsDirectConnectPanel, "ConnectButton")?.GetComponent<Button>();
                 dsCancelButton = FindDeepChild(dsDirectConnectPanel, "CancelButton")?.GetComponent<Button>();
                 dsHistoryButton = FindDeepChild(dsServerBrowserPanel, "HistoryButton")?.GetComponent<Button>();
-                dsAllServersButton = FindDeepChild(dsServerBrowserPanel, "AllServersButton")?.GetComponent<Button>();
+                dsAllServersButton = FindDeepChild(dsServerBrowserPanel, "AllButton")?.GetComponent<Button>();
                 dsFavoritesButton = FindDeepChild(dsServerBrowserPanel, "FavoritesButton")?.GetComponent<Button>();
 
                 logger.Msg($"Button discovery: DirectConnect={dsOpenDirectConnectButton != null}, Connect={dsConnectButton != null}, Cancel={dsCancelButton != null}, History={dsHistoryButton != null}, AllServers={dsAllServersButton != null}, Favorites={dsFavoritesButton != null}");
@@ -608,6 +608,7 @@ namespace DedicatedServerMod.Client.Managers
                                 layoutGroup.padding = new RectOffset(10, 10, 10, 10);
                                 layoutGroup.childAlignment = TextAnchor.UpperCenter;
                                 
+
                                 logger.Msg($"VerticalLayoutGroup configured: childControlWidth={layoutGroup.childControlWidth}, childForceExpandWidth={layoutGroup.childForceExpandWidth}");
                                 logger.Msg($"Content RectTransform AFTER: anchors=({contentRect.anchorMin}, {contentRect.anchorMax}), sizeDelta={contentRect.sizeDelta}");
                             }
@@ -746,8 +747,10 @@ namespace DedicatedServerMod.Client.Managers
             try
             {
                 logger.Msg("All Servers button clicked");
+                logger.Msg($"Before: isShowingHistory={isShowingHistory}, isShowingFavorites={isShowingFavorites}");
                 isShowingHistory = false;
                 isShowingFavorites = false;
+                logger.Msg($"After: isShowingHistory={isShowingHistory}, isShowingFavorites={isShowingFavorites}");
                 UpdateServerList();
             }
             catch (Exception ex)
@@ -764,6 +767,7 @@ namespace DedicatedServerMod.Client.Managers
             try
             {
                 logger.Msg("Favorites button clicked");
+                isShowingHistory = false;
                 isShowingFavorites = true;
                 UpdateServerList();
             }
@@ -789,18 +793,23 @@ namespace DedicatedServerMod.Client.Managers
                 // Always clear existing entries first
                 ClearServerList();
 
+                logger.Msg($"UpdateServerList: isShowingHistory={isShowingHistory}, isShowingFavorites={isShowingFavorites}");
+
                 if (isShowingHistory)
                 {
+                    logger.Msg("UpdateServerList: Populating history");
                     // Show history
                     PopulateHistoryList();
                 }
                 else if (isShowingFavorites)
                 {
+                    logger.Msg("UpdateServerList: Populating favorites");
                     // Show favorites
                     PopulateFavoritesList();
                 }
                 else
                 {
+                    logger.Msg("UpdateServerList: Populating all servers");
                     // Show all servers (currently empty - could be populated from master server later)
                     PopulateAllServersList();
                 }
