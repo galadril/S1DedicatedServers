@@ -48,8 +48,10 @@ namespace DedicatedServerMod.Client.Managers
         // History and server list management
         private Button dsHistoryButton;
         private Button dsAllServersButton;
+        private Button dsFavoritesButton;
         private Transform dsServerListContent;
         private bool isShowingHistory = false;
+        private bool isShowingFavorites = false;
 
         // Theme
         private static readonly Color ACCENT = new Color(0.10f, 0.65f, 1f, 1f);
@@ -548,15 +550,68 @@ namespace DedicatedServerMod.Client.Managers
                 dsCancelButton = FindDeepChild(dsDirectConnectPanel, "CancelButton")?.GetComponent<Button>();
                 dsHistoryButton = FindDeepChild(dsServerBrowserPanel, "HistoryButton")?.GetComponent<Button>();
                 dsAllServersButton = FindDeepChild(dsServerBrowserPanel, "AllServersButton")?.GetComponent<Button>();
+                dsFavoritesButton = FindDeepChild(dsServerBrowserPanel, "FavoritesButton")?.GetComponent<Button>();
+
+                logger.Msg($"Button discovery: DirectConnect={dsOpenDirectConnectButton != null}, Connect={dsConnectButton != null}, Cancel={dsCancelButton != null}, History={dsHistoryButton != null}, AllServers={dsAllServersButton != null}, Favorites={dsFavoritesButton != null}");
 
                 // Find server list content area (for populating server entries)
                 var scrollViewTransform = FindDeepChild(dsServerBrowserPanel, "ServerList");
+                logger.Msg($"ServerList transform found: {scrollViewTransform != null}");
+                
                 if (scrollViewTransform != null)
                 {
                     var viewport = FindDeepChild(scrollViewTransform, "Viewport");
+                    logger.Msg($"Viewport transform found: {viewport != null}");
+                    
                     if (viewport != null)
                     {
                         dsServerListContent = FindDeepChild(viewport, "Content");
+                        logger.Msg($"Content transform found: {dsServerListContent != null}");
+                        
+                        // Configure the Content RectTransform to properly stretch horizontally
+                        if (dsServerListContent != null)
+                        {
+                            var contentRect = dsServerListContent.GetComponent<RectTransform>();
+                            if (contentRect != null)
+                            {
+                                logger.Msg($"Content RectTransform BEFORE: anchors=({contentRect.anchorMin}, {contentRect.anchorMax}), sizeDelta={contentRect.sizeDelta}");
+                                
+                                // Ensure Content stretches horizontally to match Viewport width
+                                contentRect.anchorMin = new Vector2(0f, 1f);
+                                contentRect.anchorMax = new Vector2(1f, 1f);
+                                contentRect.pivot = new Vector2(0.5f, 1f);
+                                contentRect.sizeDelta = new Vector2(0f, contentRect.sizeDelta.y);
+                                
+                                // Disable ContentSizeFitter horizontal control if present
+                                var contentSizeFitter = dsServerListContent.GetComponent<ContentSizeFitter>();
+                                if (contentSizeFitter != null)
+                                {
+                                    logger.Msg($"ContentSizeFitter found: horizontalFit={contentSizeFitter.horizontalFit}, verticalFit={contentSizeFitter.verticalFit}");
+                                    contentSizeFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+                                    logger.Msg("Set ContentSizeFitter.horizontalFit to Unconstrained");
+                                }
+                                
+                                // Ensure VerticalLayoutGroup exists and is properly configured
+                                var layoutGroup = dsServerListContent.GetComponent<VerticalLayoutGroup>();
+                                if (layoutGroup == null)
+                                {
+                                    logger.Warning("No VerticalLayoutGroup found on Content - adding one");
+                                    layoutGroup = dsServerListContent.gameObject.AddComponent<VerticalLayoutGroup>();
+                                }
+                                
+                                // Configure the layout group for proper server entry display
+                                layoutGroup.childControlWidth = true;
+                                layoutGroup.childControlHeight = true;
+                                layoutGroup.childForceExpandWidth = true;
+                                layoutGroup.childForceExpandHeight = false;
+                                layoutGroup.spacing = 5f;
+                                layoutGroup.padding = new RectOffset(10, 10, 10, 10);
+                                layoutGroup.childAlignment = TextAnchor.UpperCenter;
+                                
+                                logger.Msg($"VerticalLayoutGroup configured: childControlWidth={layoutGroup.childControlWidth}, childForceExpandWidth={layoutGroup.childForceExpandWidth}");
+                                logger.Msg($"Content RectTransform AFTER: anchors=({contentRect.anchorMin}, {contentRect.anchorMax}), sizeDelta={contentRect.sizeDelta}");
+                            }
+                        }
                     }
                 }
 
@@ -615,6 +670,11 @@ namespace DedicatedServerMod.Client.Managers
                     dsAllServersButton.onClick.RemoveAllListeners();
                     dsAllServersButton.onClick.AddListener(OnAllServersButtonClicked);
                 }
+                if (dsFavoritesButton != null)
+                {
+                    dsFavoritesButton.onClick.RemoveAllListeners();
+                    dsFavoritesButton.onClick.AddListener(OnFavoritesButtonClicked);
+                }
 
                 // Apply captured fonts/colors so text is visible in game
                 ApplyCapturedFonts(dsServerBrowserPanel);
@@ -669,6 +729,7 @@ namespace DedicatedServerMod.Client.Managers
             {
                 logger.Msg("History button clicked");
                 isShowingHistory = true;
+                isShowingFavorites = false;
                 UpdateServerList();
             }
             catch (Exception ex)
@@ -686,11 +747,29 @@ namespace DedicatedServerMod.Client.Managers
             {
                 logger.Msg("All Servers button clicked");
                 isShowingHistory = false;
+                isShowingFavorites = false;
                 UpdateServerList();
             }
             catch (Exception ex)
             {
                 logger.Error($"Error handling all servers button click: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Handle favorites button click
+        /// </summary>
+        private void OnFavoritesButtonClicked()
+        {
+            try
+            {
+                logger.Msg("Favorites button clicked");
+                isShowingFavorites = true;
+                UpdateServerList();
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error handling favorites button click: {ex}");
             }
         }
 
@@ -714,6 +793,11 @@ namespace DedicatedServerMod.Client.Managers
                 {
                     // Show history
                     PopulateHistoryList();
+                }
+                else if (isShowingFavorites)
+                {
+                    // Show favorites
+                    PopulateFavoritesList();
                 }
                 else
                 {
@@ -770,6 +854,34 @@ namespace DedicatedServerMod.Client.Managers
             catch (Exception ex)
             {
                 logger.Error($"Error populating history list: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Populates the server list with favorites entries
+        /// </summary>
+        private void PopulateFavoritesList()
+        {
+            try
+            {
+                var favorites = ServerFavorites.GetFavorites();
+                
+                if (favorites.Count == 0)
+                {
+                    CreateServerListPlaceholder("No favorite servers");
+                    return;
+                }
+
+                foreach (var entry in favorites)
+                {
+                    CreateServerListEntry(entry.IP, entry.Port, entry.ServerName, entry.LastConnected);
+                }
+
+                logger.Msg($"Populated favorites list with {favorites.Count} entries");
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error populating favorites list: {ex}");
             }
         }
 
@@ -1378,7 +1490,7 @@ namespace DedicatedServerMod.Client.Managers
 
             input = input.Trim();
 
-            int colonIndex = input.LastIndexOf(':');
+            int colonIndex = input.LastIndexOf(':' );
             if (colonIndex > 0 && colonIndex < input.Length - 1)
             {
                 string ipPart = input.Substring(0, colonIndex);
