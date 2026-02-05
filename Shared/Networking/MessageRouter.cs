@@ -92,6 +92,10 @@ namespace DedicatedServerMod.Shared.Networking
                     HandleClientConsoleCommand(data);
                     break;
 
+                case "server_data":
+                    HandleServerDataResponse(data);
+                    break;
+
                 default:
                     _logger.Msg($"Unhandled client message: {command}");
                     break;
@@ -332,6 +336,63 @@ namespace DedicatedServerMod.Shared.Networking
             catch (Exception ex)
             {
                 _logger.Error($"HandleServerDataRequest: Error: {ex}");
+            }
+        }
+
+        #endregion
+
+        #region Client Server Data Handling
+        
+        /// <summary>
+        /// Handles server data response from the server.
+        /// </summary>
+        /// <param name="data">The JSON server data payload</param>
+        private static void HandleServerDataResponse(string data)
+        {
+            try
+            {
+                // Only process on client builds - server doesn't need this
+                #if Mono_Client || IL2CPP_Client
+                var serverData = JsonConvert.DeserializeObject<ServerData>(data);
+                if (serverData != null)
+                {
+                    // Update the client-side server data store
+                    DedicatedServerMod.Client.Managers.ServerDataStore.Update(serverData);
+                    
+                    // Update server history with the server name
+                    UpdateServerHistoryWithName(serverData);
+                }
+                #else
+                _logger?.Warning("HandleServerDataResponse: Called on non-client build, ignoring");
+                #endif
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"HandleServerDataResponse: Error parsing server data: {ex}");
+            }
+        }
+        
+        /// <summary>
+        /// Updates the server history with the server name from ServerData
+        /// </summary>
+        private static void UpdateServerHistoryWithName(ServerData serverData)
+        {
+            try
+            {
+                #if Mono_Client || IL2CPP_Client
+                if (string.IsNullOrEmpty(serverData.ServerName))
+                    return;
+                
+                // Get the current connection info
+                var (ip, port) = DedicatedServerMod.Client.Managers.ClientConnectionManager.GetTargetServer();
+                
+                // Update the history entry with the server name
+                DedicatedServerMod.Client.Data.ServerHistory.UpdateServerName(ip, port, serverData.ServerName);
+                #endif
+            }
+            catch (Exception ex)
+            {
+                _logger?.Warning($"Failed to update server history: {ex.Message}");
             }
         }
 

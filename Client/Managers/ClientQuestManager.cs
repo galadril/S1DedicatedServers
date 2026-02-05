@@ -85,6 +85,10 @@ namespace DedicatedServerMod.Client.Managers
                     
                     questSystemInitialized = true;
                     logger.Msg("Quest system initialization completed");
+                    
+                    // Now that player and quest systems are ready, request server data
+                    // This ensures DailySummary is spawned and messaging is ready
+                    RequestServerData();
                 }
                 else
                 {
@@ -94,6 +98,25 @@ namespace DedicatedServerMod.Client.Managers
             else
             {
                 logger.Warning("QuestManager not found - quest initialization may be delayed");
+            }
+        }
+        
+        /// <summary>
+        /// Requests server data from the server after systems are ready
+        /// </summary>
+        private void RequestServerData()
+        {
+            try
+            {
+                if (InstanceFinder.IsClient && !InstanceFinder.IsServer)
+                {
+                    logger.Msg("Requesting server data after quest system initialization");
+                    DedicatedServerMod.Shared.Networking.CustomMessaging.SendToServer("request_server_data");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"Failed to request server data: {ex.Message}");
             }
         }
 
