@@ -983,13 +983,15 @@
 		<!-- Client builds include the client mod entry -->
 	<ItemGroup Condition="'$(Configuration)'=='Mono_Client' Or '$(Configuration)'=='Il2cpp_Client'">
 		<None Remove="Assets\Player_0.zip" />
-		<EmbeddedResource Include="Assets\dedicatedclientui" />
 
 		<!-- Client bootstrap and entry point -->
 		<Compile Include="Client\Core\ClientBootstrap.cs" />
 		
 		<!-- Client managers -->
 		<Compile Include="Client\Managers\*.cs" />
+		
+		<!-- Client UI components -->
+		<Compile Include="Client\UI\*.cs" />
 		
 		<!-- Client patchers -->
 		<Compile Include="Client\Patchers\*.cs" />
@@ -1001,13 +1003,11 @@
 		<Compile Include="Client\Data\*.cs" />
 		
 		<Compile Include="API\S1DS.Client.cs" />
-		<Compile Include="Assets\AssetBundleLoader.cs" />
 	</ItemGroup>
 
 	<!-- Server builds include the new organized server structure -->
 	<ItemGroup Condition="'$(Configuration)'=='Mono_Server' Or '$(Configuration)'=='Il2cpp_Server'">
 		<EmbeddedResource Include="Assets\Player_0.zip" />
-		<None Remove="Assets\dedicatedclientui" />
 
 		<!-- Core server bootstrap -->
 		<Compile Include="Server\Core\ServerBootstrap.cs" />
